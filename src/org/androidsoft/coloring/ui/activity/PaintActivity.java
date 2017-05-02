@@ -101,14 +101,14 @@ public class PaintActivity extends AbstractColoringActivity implements PaintView
 		case R.id.open_new:
 			startActivityForResult(new Intent(INTENT_START_NEW), REQUEST_START_NEW);
 			return true;
-		//case R.id.save:
-			//new BitmapSaver();
-			//return true;
+		case R.id.save:
+			new BitmapSaver();
+			return true;
 
-		//case R.id.share:
-		//	new BitmapSharer();
-		//	return true;
-		//}
+		case R.id.share:
+			new BitmapSharer();
+			return true;
+		}
 		return false;
 	}
 
