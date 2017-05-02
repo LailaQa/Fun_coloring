@@ -338,7 +338,122 @@ public class PaintActivity extends AbstractColoringActivity implements PaintView
 		void onSaved(String filename);
 	}
 // save and share functions
-	
+	private class BitmapSaver implements Runnable {
+
+		public BitmapSaver() {
+			class DelayHandler extends Handler {
+
+				@Override
+				public void handleMessage(Message m) {
+					// We are done, hide the progress bar and turn
+					// the paint view back on.
+					_saveInProgress = false;
+					_progressDialog.dismiss();
+				}
+			}
+
+			class ProgressHandler extends Handler {
+
+				@Override
+				public void handleMessage(Message m) {
+					switch (m.what) {
+					case Progress.MESSAGE_INCREMENT_PROGRESS:
+						// Update progress bar.
+						_progressDialog.incrementProgressBy(m.arg1);
+						break;
+					case Progress.MESSAGE_DONE_OK:
+					case Progress.MESSAGE_DONE_ERROR:
+						if (m.what == Progress.MESSAGE_DONE_OK) {
+							finishSaving();
+						}
+						String title = getString(R.string.dialog_saving);
+						if (m.what == Progress.MESSAGE_DONE_OK) {
+							title += getString(R.string.dialog_saving_ok);
+						} else {
+							title += getString(R.string.dialog_saving_error);
+						}
+						_progressDialog.setTitle(title);
+						new DelayHandler().sendEmptyMessageDelayed(0, SAVE_DIALOG_WAIT_MILLIS);
+						break;
+					}
+				}
+			}
+
+			if (_paintView.isInitialized()) {
+				_saveInProgress = true;
+				showDialog(DIALOG_PROGRESS);
+				_progressDialog.setTitle(R.string.dialog_saving);
+				_progressDialog.setProgress(0);
+				_originalOutlineBitmap = BitmapFactory.decodeResource(getResources(), _state._loadedResourceId);
+				_progressHandler = new ProgressHandler();
+				new Thread(this).start();
+			}
+		}
+
+		public void run() {
+			// Get a filename.
+			_fileName = newImageFileName();
+			_file = new File(Environment.getExternalStorageDirectory(), getString(R.string.saved_image_path_prefix) + _fileName + ".png");
+
+			// Save the bitmap to a file.
+			_paintView.saveToFile(_file, _originalOutlineBitmap, _progressHandler);
+		}
+
+		protected void finishSaving() {
+			// Save it to the MediaStore.
+			ContentValues values = new ContentValues();
+			values.put(Images.Media.TITLE, _fileName);
+			values.put(Images.Media.DISPLAY_NAME, _fileName);
+			values.put(Images.Media.MIME_TYPE, MIME_PNG);
+			values.put(Images.Media.DATE_TAKEN, System.currentTimeMillis());
+			values.put(Images.Media.DATA, _file.toString());
+			File parentFile = _file.getParentFile();
+			values.put(Images.Media.BUCKET_ID, parentFile.toString().toLowerCase().hashCode());
+			values.put(Images.Media.BUCKET_DISPLAY_NAME, parentFile.getName().toLowerCase());
+			_newImageUri = getContentResolver().insert(Images.Media.EXTERNAL_CONTENT_URI, values);
+
+			// Delete the old version, if we have any.
+			if (_state._savedImageUri != null) {
+				getContentResolver().delete(_state._savedImageUri, null, null);
+			}
+			_state._savedImageUri = _newImageUri;
+
+			// Scan the file so that it appears in the system as it should.
+			if (_newImageUri != null) {
+				new MediaScannerNotifier(PaintActivity.this, _file.toString(), MIME_PNG);
+			}
+		}
+
+		private String newImageFileName() {
+			final DateFormat fmt = new SimpleDateFormat("yyyyMMdd-HHmmss");
+			return fmt.format(new Date());
+		}
+
+		private Bitmap _originalOutlineBitmap;
+		private String _fileName;
+		private File _file;
+		private Handler _progressHandler;
+		protected Uri _newImageUri;
+	}
+
+	private class BitmapSharer extends BitmapSaver {
+
+		public BitmapSharer() {
+			super();
+		}
+
+		@Override
+		protected void finishSaving() {
+			super.finishSaving();
+
+			if (_newImageUri != null) {
+				Intent sharingIntent = new Intent(Intent.ACTION_SEND);
+				sharingIntent.setType("image/png");
+				sharingIntent.putExtra(Intent.EXTRA_STREAM, _newImageUri);
+				startActivity(Intent.createChooser(sharingIntent, getString(R.string.dialog_share)));
+			}
+		}
+	}
 
 	// The state of the whole drawing. This is used to transfer the state if
 	// the activity is re-created (e.g. due to orientation change).
